@@ -98,7 +98,7 @@ CANDIDATE_MODELS = [
 ]
 
 def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
-    """调用 Gemini 生成策略简报，内置指数退避重试与模型故障转移机制"""
+    """调用 Gemini 生成策略简报，内置多模型备用降级、指数退避重试及新股互补推荐"""
     
     available_cash = financial_profile.get("available_cash", 0.0)
     risk_tolerance = financial_profile.get("risk_tolerance", "Aggressive")
@@ -115,16 +115,19 @@ def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: di
     session_title = "盘前操作基调与持仓备忘" if session_mode == "pre_market" else "盘中异动与趋势确认扫描"
 
     system_instruction = """
-你是一名服务于进取型长线投资者的买方对冲基金首席宏观与量化税务配置专家。
+你是一名服务于进取型中长线投资者的买方对冲基金首席宏观与量化税务配置专家。
 请严格恪守以下投资与税务纪律：
-1. **默认持有立场（Default Hold）**：投资者追求极低换手率（持仓 >1 年），绝不追高，避免杀跌。日常行情波动必须保持【按兵不动】。
+1. **默认持有立场（Default Hold）**：投资者追求较低换手率（持仓 >1 年），绝不追高，避免杀跌。日常行情波动保持【按兵不动】。
 2. **Tax Lots 批次级避税指令**：
    - 当特定批次持有接近 365 天（300~364天）且处于浮盈时，坚决禁止止盈建议，警示短期资本利得税惩罚；
    - 若某特定批次浮亏严重且该投资者 YTD 已实现盈利较大，评估 Tax-Loss Harvesting 冲销价值（注意提示 30 天 Wash Sale 规则）。
-   - 考虑报税身份、收入门槛（如 3.8% NIIT 附加税）及所在州税摩擦。
+   - 考虑报税身份、收入门槛（如 3.8% NIIT 附加税）及所在州税摩擦（Tax Friction / Tax Drag）。
 3. **关键击球点（Fat Pitch）资金管理**：
-   - 基于传入的【可用现金储备】，绝不轻易建议开仓。仅在核心标的发生非理性深度回调（进入 52 周低位或 200-DMA 关键支撑）或出现不可错失的催化剂时，建议动用 5%~10% 现金分批建仓。
-4. **输出格式**：直接输出现代、极简、高对比度、带内联 CSS 样式的原生 HTML 正文，禁止包含 Markdown 代码块标记（如 ```html）。
+   - 基于传入的【可用现金储备】，不轻易建议开仓。仅在核心标的发生非理性深度回调（进入 52 周低位或 200-DMA 关键支撑）或出现不可错失的催化剂时，建议动用 5%~10% 现金分批建仓。
+4. **持仓赛道暴露度与新股互补诊断**：
+   - 评估当前持仓在主要赛道（如算力/半导体、大科技平台、中概互联、商业航天/核能、生物制药）的集中风险。
+   - 结合进取型长线风格与现金储备，主动推荐 1~2 只在商业模式、行业周期或供应链上具有强互补性/对冲效应的优质龙头新标的（附带推荐逻辑与建议挂单/建仓区间）。
+5. **输出格式**：直接输出现代、极简、高对比度、带内联 CSS 样式的原生 HTML 正文，禁止包含 Markdown 代码块标记（如 ```html）。
 """
 
     prompt = f"""
@@ -150,13 +153,16 @@ def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: di
    - 对临近 1 年的长税冲刺批次以醒目黄色/橙色突出显示。
 3. **当日操作决议（克制、果断）**：
    - 明确给出【维持现状/按兵不动】、【分批加仓】或【税收亏损收割】。若加仓，需换算基于可用现金的具体金额区间。
-4. **基本面与新闻风险提炼**：简要概括影响长期逻辑的新闻要点，过滤短期噪音。
+4. **持仓赛道集中度与新股建仓候选 (New Ticker Ideas)**：
+   - 诊断当前组合的赛道集中度风险（如 AI 算力与科技股集中度）。
+   - 推荐 1~2 只能够与现有持仓互补的优质新标的（如关键软件供应链、工业自动化或基础设施等），列出：标的代码(Ticker)、所属赛道、互补价值与长线催化剂、建议等待的回调介入区间。
+5. **基本面与新闻风险提炼**：简要概括影响长期逻辑的新闻要点，过滤短期噪音。
 """
 
-    # 循环尝试候选模型与重试机制
+    # 候选模型列表与重试机制
     for model_name in CANDIDATE_MODELS:
         max_retries = 3
-        delay = 4  # 初始等待 4 秒
+        delay = 4
         
         for attempt in range(1, max_retries + 1):
             try:
@@ -173,7 +179,6 @@ def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: di
                 return cleaned_html
 
             except errors.ServerError as e:
-                # 捕获 503 UNAVAILABLE / 500 等服务端临时过载
                 print(f"[Warning] 模型 {model_name} 服务端过载 (503): {e.message}")
                 if attempt < max_retries:
                     print(f"[Info] 等待 {delay} 秒后重试...")
@@ -237,7 +242,7 @@ def main():
         days_back=1 if session_mode == "pre_market" else 0
     )
 
-    print("[Info] 正在调用 Gemini 3.7 Flash 生成策略简报...")
+    print("[Info] 正在调用 Gemini Flash 生成策略简报...")
     gemini_client = genai.Client(api_key=env_config["gemini_key"])
     
     html_report = generate_llm_analysis_report(
