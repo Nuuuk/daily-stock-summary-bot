@@ -2,10 +2,10 @@ name: Daily Stock Positions Summary Bot
 
 on:
   schedule:
-    # 盘前 08:30 AM EST (夏令时 UTC 12:30 / 冬令时 UTC 13:30)
-    - cron: '30 12 * * 1-5'
-    # 盘中 01:30 PM EST (夏令时 UTC 17:30 / 冬令时 UTC 18:30)
-    - cron: '30 17 * * 1-5'
+    # 盘前 08:37 AM EST (夏令时 UTC 12:30 / 冬令时 UTC 13:30)
+    - cron: '37 12 * * 1-5'
+    # 盘中 01:37 PM EST (夏令时 UTC 17:30 / 冬令时 UTC 18:30)
+    - cron: '37 17 * * 1-5'
 
   workflow_dispatch:
     inputs:
