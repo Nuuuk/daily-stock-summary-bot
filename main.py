@@ -87,7 +87,19 @@ def determine_session_mode():
     return "mid_day"
 
 
+import time
+from google.genai import errors
+
+# 候选模型列表：按优先级排序，首选 3.7，遇到 503/429 自动降级至备用模型
+CANDIDATE_MODELS = [
+    "gemini-3.7-flash",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash"
+]
+
 def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
+    """调用 Gemini 生成策略简报，内置指数退避重试与模型故障转移机制"""
+    
     available_cash = financial_profile.get("available_cash", 0.0)
     risk_tolerance = financial_profile.get("risk_tolerance", "Aggressive")
     primary_goal = financial_profile.get("primary_goal", "Capital Appreciation (>1 Year Hold)")
@@ -141,17 +153,44 @@ def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: di
 4. **基本面与新闻风险提炼**：简要概括影响长期逻辑的新闻要点，过滤短期噪音。
 """
 
-    response = gemini_client.models.generate_content(
-        model="gemini-3.7-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=0.2,
-        )
-    )
+    # 循环尝试候选模型与重试机制
+    for model_name in CANDIDATE_MODELS:
+        max_retries = 3
+        delay = 4  # 初始等待 4 秒
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                print(f"[Info] 尝试调用模型: {model_name} (第 {attempt} 次)...")
+                response = gemini_client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=0.2,
+                    )
+                )
+                cleaned_html = response.text.replace("```html", "").replace("```", "").strip()
+                return cleaned_html
 
-    cleaned_html = response.text.replace("```html", "").replace("```", "").strip()
-    return cleaned_html
+            except errors.ServerError as e:
+                # 捕获 503 UNAVAILABLE / 500 等服务端临时过载
+                print(f"[Warning] 模型 {model_name} 服务端过载 (503): {e.message}")
+                if attempt < max_retries:
+                    print(f"[Info] 等待 {delay} 秒后重试...")
+                    time.sleep(delay)
+                    delay *= 2
+                else:
+                    print(f"[Warning] 模型 {model_name} 达到最大重试次数，尝试降级到下一个备用模型...")
+                    break
+            except Exception as e:
+                print(f"[Warning] 模型 {model_name} 发生异常 ({type(e).__name__}): {e}")
+                if attempt < max_retries:
+                    time.sleep(delay)
+                    delay *= 2
+                else:
+                    break
+
+    raise RuntimeError("所有候选 Gemini 模型均遇到服务过载或异常，生成简报失败。")
 
 
 def send_email_notification(html_content: str, subject_prefix: str, config_env: dict):
