@@ -11,6 +11,39 @@ from google.genai import types
 
 from data_collector import assemble_full_market_payload
 
+import time
+
+def retry_with_backoff(max_retries=3, initial_delay=2, backoff_factor=2):
+    """
+    通用重试装饰器：处理大模型 Free Tier 偶发的 429 (Rate Limit) 与 503 (Overloaded)
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            delay = initial_delay
+            for attempt in range(1, max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    error_msg = str(e)
+                    # 捕获常见的限流与过载状态码
+                    if any(code in error_msg for code in ["429", "503", "ResourceExhausted", "Overloaded"]) or attempt < max_retries:
+                        if attempt == max_retries:
+                            print(f"[Fatal] 超过最大重试次数 ({max_retries})，调用失败: {error_msg}")
+                            raise e
+                        print(f"[Warning] 触发 API 频控或临时过载 ({error_msg})，等待 {delay} 秒后进行第 {attempt + 1} 次重试...")
+                        time.sleep(delay)
+                        delay *= backoff_factor
+                    else:
+                        raise e
+        return wrapper
+    return decorator
+
+
+# 在生成简报函数上方直接加上装饰器
+@retry_with_backoff(max_retries=3, initial_delay=3, backoff_factor=2)
+def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
+    # 保持原有生成逻辑不变
+    ...
 
 def load_environment_config():
     raw_config = os.environ.get("APP_CONFIG_JSON")
