@@ -2,6 +2,25 @@ import datetime
 from typing import List, Dict, Any
 import yfinance as yf
 import finnhub
+import time
+
+def assemble_full_market_payload(positions: List[Dict[str, Any]], finnhub_api_key: str, days_back: int = 1) -> Dict[str, Any]:
+    finnhub_client = finnhub.Client(api_key=finnhub_api_key)
+    today = datetime.date.today()
+    
+    macro_data = fetch_macro_indicators()
+    unique_tickers = list(set(pos["ticker"].strip().upper() for pos in positions if "ticker" in pos))
+    
+    market_cache = {}
+    for ticker in unique_tickers:
+        market_cache[ticker] = {
+            "tech": fetch_ticker_technical_data(ticker),
+            "news": fetch_ticker_news(ticker, finnhub_client, days_back=days_back)
+        }
+        # 每次拉取间隔 0.3 秒，平滑请求节奏
+        time.sleep(0.3)
+        
+    ...
 
 MACRO_TICKERS = {
     "SP500": "^GSPC",
