@@ -5,6 +5,7 @@ import smtplib
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from zoneinfo import ZoneInfo
 
 from google import genai
 from google.genai import types
@@ -207,8 +208,12 @@ def send_email_notification(html_content: str, subject_prefix: str, config_env: 
     sender_password = config_env["sender_password"]
     receiver_email = config_env["receiver_email"]
 
-    now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
-    subject = f"[{subject_prefix}] 美股持仓与决策简报 ({now_str} EST)"
+# 强制获取美东纽约时区时间（自动适应 EDT 夏令时 / EST 冬令时）
+    ny_tz = ZoneInfo("America/New_York")
+    now_ny = datetime.now(ny_tz)
+    now_str = now_ny.strftime('%Y-%m-%d %H:%M %Z')
+    
+    subject = f"[{subject_prefix}] 美股持仓与决策简报 ({now_str})"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
