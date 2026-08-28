@@ -31,6 +31,38 @@ MACRO_TICKERS = {
     "DXY": "DX-Y.NYB"
 }
 
+# 精选互补观察池（覆盖 AI 基础设施散热、清洁核电、网安、半导体代工与工业龙头）
+CURATED_COMPLEMENTARY_POOL = [
+    {"ticker": "VRT", "sector": "AI Data Center Cooling / Power", "name": "Vertiv Holdings"},
+    {"ticker": "CEG", "sector": "Nuclear / Base-load Clean Energy", "name": "Constellation Energy"},
+    {"ticker": "GEV", "sector": "Power Grid / Energy Infrastructure", "name": "GE Vernova"},
+    {"ticker": "CRWD", "sector": "Enterprise Cybersecurity", "name": "CrowdStrike"},
+    {"ticker": "TSM", "sector": "Leading Semiconductor Foundry", "name": "Taiwan Semiconductor"},
+    {"ticker": "PLTR", "sector": "Enterprise AI & Defense Analytics", "name": "Palantir"},
+    {"ticker": "ANET", "sector": "Cloud & AI Networking", "name": "Arista Networks"}
+]
+
+def fetch_complementary_candidates_data() -> List[Dict[str, Any]]:
+    """拉取精选互补候选标的的最新真实技术面指标"""
+    results = []
+    for item in CURATED_COMPLEMENTARY_POOL:
+        ticker = item["ticker"]
+        tech = fetch_ticker_technical_data(ticker)
+        if "error" not in tech:
+            results.append({
+                "ticker": ticker,
+                "name": item["name"],
+                "sector": item["sector"],
+                "current_price": tech.get("current_price"),
+                "change_pct": tech.get("change_pct"),
+                "ma_50": tech.get("ma_50"),
+                "ma_200": tech.get("ma_200"),
+                "52w_low": tech.get("52w_low"),
+                "52w_high": tech.get("52w_high"),
+                "relative_volume": tech.get("relative_volume")
+            })
+    return results
+
 def fetch_macro_indicators() -> Dict[str, Any]:
     macro_data = {}
     for name, symbol in MACRO_TICKERS.items():
@@ -174,5 +206,6 @@ def assemble_full_market_payload(positions: List[Dict[str, Any]], finnhub_api_ke
     return {
         "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S EST'),
         "macro_environment": macro_data,
-        "positions_tax_lots": enriched_tax_lots
+        "positions_tax_lots": enriched_tax_lots,
+        "complementary_candidates_market_data": fetch_complementary_candidates_data()  # 注入真实候选池行情
     }
