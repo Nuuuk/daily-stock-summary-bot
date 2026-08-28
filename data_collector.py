@@ -1,27 +1,11 @@
 import datetime
+import time
 from typing import List, Dict, Any
+from zoneinfo import ZoneInfo
 import yfinance as yf
 import finnhub
-import time
 
-def assemble_full_market_payload(positions: List[Dict[str, Any]], finnhub_api_key: str, days_back: int = 1) -> Dict[str, Any]:
-    finnhub_client = finnhub.Client(api_key=finnhub_api_key)
-    today = datetime.date.today()
-    
-    macro_data = fetch_macro_indicators()
-    unique_tickers = list(set(pos["ticker"].strip().upper() for pos in positions if "ticker" in pos))
-    
-    market_cache = {}
-    for ticker in unique_tickers:
-        market_cache[ticker] = {
-            "tech": fetch_ticker_technical_data(ticker),
-            "news": fetch_ticker_news(ticker, finnhub_client, days_back=days_back)
-        }
-        # 每次拉取间隔 0.3 秒，平滑请求节奏
-        time.sleep(0.3)
-        
-    ...
-
+# 宏观核心指标映射池
 MACRO_TICKERS = {
     "SP500": "^GSPC",
     "Nasdaq": "^IXIC",
@@ -42,28 +26,9 @@ CURATED_COMPLEMENTARY_POOL = [
     {"ticker": "ANET", "sector": "Cloud & AI Networking", "name": "Arista Networks"}
 ]
 
-def fetch_complementary_candidates_data() -> List[Dict[str, Any]]:
-    """拉取精选互补候选标的的最新真实技术面指标"""
-    results = []
-    for item in CURATED_COMPLEMENTARY_POOL:
-        ticker = item["ticker"]
-        tech = fetch_ticker_technical_data(ticker)
-        if "error" not in tech:
-            results.append({
-                "ticker": ticker,
-                "name": item["name"],
-                "sector": item["sector"],
-                "current_price": tech.get("current_price"),
-                "change_pct": tech.get("change_pct"),
-                "ma_50": tech.get("ma_50"),
-                "ma_200": tech.get("ma_200"),
-                "52w_low": tech.get("52w_low"),
-                "52w_high": tech.get("52w_high"),
-                "relative_volume": tech.get("relative_volume")
-            })
-    return results
 
 def fetch_macro_indicators() -> Dict[str, Any]:
+    """抓取宏观核心指标（大盘指数、美债收益率、恐慌指数与美元指数）"""
     macro_data = {}
     for name, symbol in MACRO_TICKERS.items():
         try:
@@ -86,6 +51,7 @@ def fetch_macro_indicators() -> Dict[str, Any]:
 
 
 def fetch_ticker_technical_data(ticker_symbol: str) -> Dict[str, Any]:
+    """获取单只标的的实时行情、50/200 均线、相对成交量及 52 周极值"""
     try:
         ticker = yf.Ticker(ticker_symbol)
         hist = ticker.history(period="1y")
@@ -120,6 +86,7 @@ def fetch_ticker_technical_data(ticker_symbol: str) -> Dict[str, Any]:
 
 
 def fetch_ticker_news(ticker_symbol: str, finnhub_client: finnhub.Client, days_back: int = 1) -> List[Dict[str, str]]:
+    """通过 Finnhub 抓取指定时间窗口内的个股重要新闻"""
     today = datetime.date.today()
     start_date = today - datetime.timedelta(days=days_back)
     
@@ -142,20 +109,54 @@ def fetch_ticker_news(ticker_symbol: str, finnhub_client: finnhub.Client, days_b
         return [{"error": f"Failed to fetch Finnhub news: {str(e)}"}]
 
 
+def fetch_complementary_candidates_data() -> List[Dict[str, Any]]:
+    """拉取精选互补观察池的实时行情与均线数据（杜绝大模型价格幻觉）"""
+    results = []
+    for item in CURATED_COMPLEMENTARY_POOL:
+        ticker = item["ticker"]
+        tech = fetch_ticker_technical_data(ticker)
+        if "error" not in tech:
+            results.append({
+                "ticker": ticker,
+                "name": item["name"],
+                "sector": item["sector"],
+                "current_price": tech.get("current_price"),
+                "change_pct": tech.get("change_pct"),
+                "ma_50": tech.get("ma_50"),
+                "ma_200": tech.get("ma_200"),
+                "52w_low": tech.get("52w_low"),
+                "52w_high": tech.get("52w_high"),
+                "relative_volume": tech.get("relative_volume")
+            })
+        # 保护请求频率
+        time.sleep(0.2)
+    return results
+
+
 def assemble_full_market_payload(positions: List[Dict[str, Any]], finnhub_api_key: str, days_back: int = 1) -> Dict[str, Any]:
+    """组装完整的宏观、各 Tax Lot 盈亏、税收时钟及个股新闻 Payload"""
     finnhub_client = finnhub.Client(api_key=finnhub_api_key)
-    today = datetime.date.today()
     
+    # 统一使用美东纽约时区计算日期与时间
+    ny_tz = ZoneInfo("America/New_York")
+    now_ny = datetime.datetime.now(ny_tz)
+    today_ny = now_ny.date()
+    
+    # 1. 抓取宏观数据
     macro_data = fetch_macro_indicators()
-    unique_tickers = list(set(pos["ticker"].strip().upper() for pos in positions if "ticker" in pos))
     
+    # 2. 提取唯一持仓 Ticker 列表，去重拉取
+    unique_tickers = list(set(pos["ticker"].strip().upper() for pos in positions if "ticker" in pos))
     market_cache = {}
     for ticker in unique_tickers:
         market_cache[ticker] = {
             "tech": fetch_ticker_technical_data(ticker),
             "news": fetch_ticker_news(ticker, finnhub_client, days_back=days_back)
         }
+        # 每次拉取间隔 0.3 秒，平滑请求节奏防频控
+        time.sleep(0.3)
         
+    # 3. 按独立 Tax Lot 计算盈亏与税收时钟
     enriched_tax_lots = []
     for pos in positions:
         ticker = pos.get("ticker", "").strip().upper()
@@ -165,11 +166,12 @@ def assemble_full_market_payload(positions: List[Dict[str, Any]], finnhub_api_ke
         cost_basis = float(pos.get("average_buy_price", 0.0))
         strategy = pos.get("strategy", "Long-term")
         
+        # 基于美东当前日期精确计算持有天数
         holding_days = 0
         if buy_date_str:
             try:
                 buy_date = datetime.datetime.strptime(buy_date_str, "%Y-%m-%d").date()
-                holding_days = (today - buy_date).days
+                holding_days = (today_ny - buy_date).days
             except ValueError:
                 pass
         
@@ -204,7 +206,7 @@ def assemble_full_market_payload(positions: List[Dict[str, Any]], finnhub_api_ke
         })
         
     return {
-        "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S EST'),
+        "timestamp": now_ny.strftime('%Y-%m-%d %H:%M:%S %Z'),  # 动态匹配 EDT / EST
         "macro_environment": macro_data,
         "positions_tax_lots": enriched_tax_lots,
         "complementary_candidates_market_data": fetch_complementary_candidates_data()  # 注入真实候选池行情
