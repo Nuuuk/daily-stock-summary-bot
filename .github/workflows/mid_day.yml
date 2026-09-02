@@ -1,9 +1,6 @@
 name: Mid-Day Scan
 
 on:
-  schedule:
-    # 美东夏令时 01:15 PM EDT (UTC 17:15)
-    - cron: '15 17 * * 1-5'
   workflow_dispatch:
 
 jobs:
