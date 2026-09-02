@@ -1,6 +1,10 @@
 name: Pre-Market Briefing
 
 on:
+  # 接收来自 cron-job.org 的外部 Webhook 触发
+  repository_dispatch:
+    types: [run_summary]
+  # 保留 GitHub 页面手动点击运行按钮
   workflow_dispatch:
 
 jobs:
