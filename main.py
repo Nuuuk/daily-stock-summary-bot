@@ -79,14 +79,14 @@ def load_environment_config():
 
 
 def determine_session_mode():
+    """优先读取命令行指定参数，确保排队延误时不发生模式篡改"""
     if len(sys.argv) > 1 and sys.argv[1] in ["pre_market", "mid_day"]:
         return sys.argv[1]
 
-    current_hour_utc = datetime.utcnow().hour
-    if 11 <= current_hour_utc <= 14:
-        return "pre_market"
-    return "mid_day"
-
+    # 本地或未传参时的兜底：按纽约美东本地时间 12:00 为分界线
+    ny_tz = ZoneInfo("America/New_York")
+    now_ny = datetime.now(ny_tz)
+    return "pre_market" if now_ny.hour < 12 else "mid_day"
 
 import time
 from google.genai import errors
