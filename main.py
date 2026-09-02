@@ -91,12 +91,12 @@ def determine_session_mode():
 import time
 from google.genai import errors
 
-# 候选模型列表：按优先级排序，首选 3.7，遇到 503/429 自动降级至备用模型
-CANDIDATE_MODELS = [
-    "gemini-3.8-flash",
-    "gemini-3.7-flash",
-    "gemini-3.6-flash"
-]
+# 从环境变量读取，支持用逗号分隔配置多个模型；若未配置则使用默认排序
+env_models = os.environ.get("GEMINI_MODELS")
+if env_models:
+    MODELS_PRIORITY = [m.strip() for m in env_models.split(",") if m.strip()]
+else:
+    MODELS_PRIORITY = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash']
 
 def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
     """调用 Gemini 生成策略简报，内置多模型备用降级、指数退避重试、新股推荐及财务隐私脱敏"""
@@ -166,7 +166,7 @@ def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: di
 """
 
     # 候选模型列表与重试机制
-    for model_name in CANDIDATE_MODELS:
+    for model_name in MODELS_PRIORITY:
         max_retries = 3
         delay = 4
         
