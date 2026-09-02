@@ -1,9 +1,6 @@
 name: Pre-Market Briefing
 
 on:
-  schedule:
-    # 美东夏令时 07:15 AM EDT (UTC 11:15)，避开高峰并预留排队缓冲
-    - cron: '15 11 * * 1-5'
   workflow_dispatch:
 
 jobs:
