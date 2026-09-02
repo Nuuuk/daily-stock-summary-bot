@@ -1,0 +1,29 @@
+name: Pre-Market Briefing
+
+on:
+  schedule:
+    # 美东夏令时 07:15 AM EDT (UTC 11:15)，避开高峰并预留排队缓冲
+    - cron: '15 11 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  run-pre-market:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - name: 执行盘前决策
+        env:
+          APP_CONFIG_JSON: ${{ secrets.APP_CONFIG_JSON }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+        # 强制写死传入 pre_market，无论排队多久都绝不被篡改
+        run: python main.py pre_market
