@@ -93,9 +93,9 @@ from google.genai import errors
 
 # 候选模型列表：按优先级排序，首选 3.7，遇到 503/429 自动降级至备用模型
 CANDIDATE_MODELS = [
+    "gemini-3.8-flash",
     "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash"
+    "gemini-3.6-flash"
 ]
 
 def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
