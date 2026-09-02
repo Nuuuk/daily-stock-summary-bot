@@ -26,5 +26,6 @@ jobs:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+          GEMINI_MODELS: ${{ vars.GEMINI_MODELS }}  # 注入变量
         # 强制写死传入 mid_day
         run: python main.py mid_day
