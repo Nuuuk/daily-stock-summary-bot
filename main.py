@@ -6,6 +6,14 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo
+from openai import OpenAI
+
+# 初始化 DeepSeek 客户端
+def get_deepseek_client(api_key: str) -> OpenAI:
+    return OpenAI(
+        api_key=api_key,
+        base_url="https://api.deepseek.com"
+    )
 
 from google import genai
 from google.genai import types
@@ -40,10 +48,8 @@ def retry_with_backoff(max_retries=3, initial_delay=2, backoff_factor=2):
     return decorator
 
 
-# 在生成简报函数上方直接加上装饰器
-@retry_with_backoff(max_retries=3, initial_delay=3, backoff_factor=2)
-def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
-    # 保持原有生成逻辑不变
+# 移除 @retry_with_backoff 装饰器和 genai.Client 类型标注
+def generate_llm_analysis_report(client, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
     ...
 
 def load_environment_config():
@@ -58,25 +64,25 @@ def load_environment_config():
         print(f"[Error] APP_CONFIG_JSON JSON 格式解析失败: {e}")
         sys.exit(1)
 
-    gemini_key = os.environ.get("GEMINI_API_KEY")
+    # 切换为获取 DEEPSEEK_API_KEY
+    deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY")
     finnhub_key = os.environ.get("FINNHUB_API_KEY")
     sender_email = os.environ.get("SENDER_EMAIL")
     sender_password = os.environ.get("SENDER_PASSWORD")
     receiver_email = os.environ.get("RECEIVER_EMAIL", sender_email)
 
-    if not all([gemini_key, finnhub_key, sender_email, sender_password]):
+    if not all([deepseek_api_key, finnhub_key, sender_email, sender_password]):
         print("[Error] 缺失必要的 API Key 或邮件 SMTP 凭证。")
         sys.exit(1)
 
     return {
         "config": config,
-        "gemini_key": gemini_key,
+        "deepseek_api_key": deepseek_api_key,
         "finnhub_key": finnhub_key,
         "sender_email": sender_email,
         "sender_password": sender_password,
         "receiver_email": receiver_email
     }
-
 
 def determine_session_mode():
     """优先读取命令行指定参数，确保排队延误时不发生模式篡改"""
@@ -88,18 +94,8 @@ def determine_session_mode():
     now_ny = datetime.now(ny_tz)
     return "pre_market" if now_ny.hour < 12 else "mid_day"
 
-import time
-from google.genai import errors
-
-# 从环境变量读取，支持用逗号分隔配置多个模型；若未配置则使用默认排序
-env_models = os.environ.get("GEMINI_MODELS")
-if env_models:
-    MODELS_PRIORITY = [m.strip() for m in env_models.split(",") if m.strip()]
-else:
-    MODELS_PRIORITY = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash']
-
-def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
-    """调用 Gemini 生成策略简报，内置多模型备用降级、指数退避重试、新股推荐及财务隐私脱敏"""
+def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
+    """调用 DeepSeek-V3 生成策略简报，内置脱敏与重试机制"""
     
     available_cash = financial_profile.get("available_cash", 0.0)
     risk_tolerance = financial_profile.get("risk_tolerance", "Aggressive")
@@ -165,43 +161,31 @@ def generate_llm_analysis_report(gemini_client: genai.Client, market_payload: di
 6. **脱敏确认**：再次确认正文中**不包含**预估年收入与 YTD 已实现盈亏的具体数字。
 """
 
-    # 候选模型列表与重试机制
-    for model_name in MODELS_PRIORITY:
-        max_retries = 3
-        delay = 4
-        
-        for attempt in range(1, max_retries + 1):
-            try:
-                print(f"[Info] 尝试调用模型: {model_name} (第 {attempt} 次)...")
-                response = gemini_client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        temperature=0.2,
-                    )
-                )
-                cleaned_html = response.text.replace("```html", "").replace("```", "").strip()
-                return cleaned_html
+    max_retries = 3
+    delay = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"[Info] 正在调用 DeepSeek-V3 (deepseek-chat) 生成简报 (第 {attempt} 次)...")
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.2,
+                stream=False
+            )
+            raw_text = response.choices[0].message.content
+            cleaned_html = raw_text.replace("```html", "").replace("```", "").strip()
+            return cleaned_html
 
-            except errors.ServerError as e:
-                print(f"[Warning] 模型 {model_name} 服务端过载 (503): {e.message}")
-                if attempt < max_retries:
-                    print(f"[Info] 等待 {delay} 秒后重试...")
-                    time.sleep(delay)
-                    delay *= 2
-                else:
-                    print(f"[Warning] 模型 {model_name} 达到最大重试次数，尝试降级到下一个备用模型...")
-                    break
-            except Exception as e:
-                print(f"[Warning] 模型 {model_name} 发生异常 ({type(e).__name__}): {e}")
-                if attempt < max_retries:
-                    time.sleep(delay)
-                    delay *= 2
-                else:
-                    break
-
-    raise RuntimeError("所有候选 Gemini 模型均遇到服务过载或异常，生成简报失败。")
+        except Exception as e:
+            print(f"[Warning] DeepSeek 调用失败 ({type(e).__name__}): {e}")
+            if attempt < max_retries:
+                time.sleep(delay)
+                delay *= 2
+            else:
+                raise RuntimeError("DeepSeek API 重试耗尽，生成简报失败。")
 
 
 def send_email_notification(html_content: str, subject_prefix: str, config_env: dict):
@@ -252,11 +236,12 @@ def main():
         days_back=1 if session_mode == "pre_market" else 0
     )
 
-    print("[Info] 正在调用 Gemini Flash 生成策略简报...")
-    gemini_client = genai.Client(api_key=env_config["gemini_key"])
+    print("[Info] 正在调用 DeepSeek API 生成策略简报...")
+    deepseek_key = env_config["deepseek_api_key"]
+    client = get_deepseek_client(deepseek_key)
     
     html_report = generate_llm_analysis_report(
-        gemini_client=gemini_client,
+        client=client,
         market_payload=market_payload,
         financial_profile=financial_profile,
         session_mode=session_mode
