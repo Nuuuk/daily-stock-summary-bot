@@ -1,12 +1,15 @@
 import os
 import sys
 import json
-import smtplib
-from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import time
+import datetime
 from zoneinfo import ZoneInfo
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 from openai import OpenAI
+from data_collector import assemble_full_market_payload
 
 # 初始化 DeepSeek 客户端
 def get_deepseek_client(api_key: str) -> OpenAI:
@@ -14,13 +17,6 @@ def get_deepseek_client(api_key: str) -> OpenAI:
         api_key=api_key,
         base_url="https://api.deepseek.com"
     )
-
-from google import genai
-from google.genai import types
-
-from data_collector import assemble_full_market_payload
-
-import time
 
 def retry_with_backoff(max_retries=3, initial_delay=2, backoff_factor=2):
     """
