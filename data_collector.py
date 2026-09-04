@@ -85,29 +85,62 @@ def fetch_ticker_technical_data(ticker_symbol: str) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def fetch_ticker_news(ticker_symbol: str, finnhub_client: finnhub.Client, days_back: int = 1) -> List[Dict[str, str]]:
+NY_TZ = ZoneInfo("America/New_York")
+
+def fetch_ticker_news(
+    ticker_symbol: str,
+    finnhub_client: finnhub.Client,
+    days_back: int = 1
+) -> List[Dict[str, str]]:
     """通过 Finnhub 抓取指定时间窗口内的个股重要新闻"""
-    today = datetime.date.today()
-    start_date = today - datetime.timedelta(days=days_back)
-    
+    now_ny = datetime.datetime.now(NY_TZ)
+    today_ny = now_ny.date()
+    start_date = today_ny - datetime.timedelta(days=days_back)
+
     try:
         news_items = finnhub_client.company_news(
-            ticker_symbol, 
-            _from=start_date.strftime('%Y-%m-%d'), 
-            to=today.strftime('%Y-%m-%d')
+            ticker_symbol,
+            _from=start_date.strftime("%Y-%m-%d"),
+            to=today_ny.strftime("%Y-%m-%d")
         )
+
+        news_items = sorted(
+            news_items,
+            key=lambda x: x.get("datetime", 0),
+            reverse=True
+        )
+
         curated_news = []
+
         for item in news_items[:4]:
+            ts = item.get("datetime", 0)
+
+            dt_ny = (
+                datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+                .astimezone(NY_TZ)
+                if ts
+                else None
+            )
+
             curated_news.append({
                 "headline": item.get("headline", ""),
-                "summary": item.get("summary", "")[:200] + "..." if item.get("summary") else "",
+                "summary": (
+                    item.get("summary", "")[:200] + "..."
+                    if item.get("summary")
+                    else ""
+                ),
                 "source": item.get("source", ""),
-                "datetime": datetime.datetime.fromtimestamp(item.get("datetime", 0)).strftime('%Y-%m-%d %H:%M')
+                "datetime": dt_ny.strftime("%Y-%m-%d %H:%M")
+                if dt_ny
+                else ""
             })
-        return curated_news
-    except Exception as e:
-        return [{"error": f"Failed to fetch Finnhub news: {str(e)}"}]
 
+        return curated_news
+
+    except Exception as e:
+        return [{
+            "error": f"Failed to fetch Finnhub news: {str(e)}"
+        }]
 
 def fetch_complementary_candidates_data() -> List[Dict[str, Any]]:
     """拉取精选互补观察池的实时行情与均线数据（杜绝大模型价格幻觉）"""
@@ -177,10 +210,14 @@ def assemble_full_market_payload(positions: List[Dict[str, Any]], finnhub_api_ke
         
         cached_data = market_cache.get(ticker, {})
         tech_data = cached_data.get("tech", {})
-        current_price = tech_data.get("current_price", cost_basis)
-        
-        unrealized_pnl = round((current_price - cost_basis) * quantity, 2)
-        unrealized_pnl_pct = round(((current_price - cost_basis) / cost_basis) * 100, 2) if cost_basis > 0 else 0.0
+        current_price = tech_data.get("current_price")
+        data_quality = "ok" if current_price is not None else "price_unavailable"
+        if current_price is not None:
+            unrealized_pnl = round((current_price - cost_basis) * quantity, 2)
+            unrealized_pnl_pct = round(((current_price - cost_basis) / cost_basis) * 100, 2) if cost_basis > 0 else 0.0
+        else:  
+        unrealized_pnl = None
+        unrealized_pnl_pct = None
         
         if holding_days >= 365:
             tax_status_label = "长期税率 (已超1年，可优先操作)"
@@ -201,13 +238,22 @@ def assemble_full_market_payload(positions: List[Dict[str, Any]], finnhub_api_ke
             "holding_days": holding_days,
             "tax_status_label": tax_status_label,
             "strategy": strategy,
-            "technical_indicators": tech_data,
+            "data_quality": data_quality,
             "recent_news": cached_data.get("news", [])
         })
+    
+    ticker_market_data = {}
+
+    for ticker, data in market_cache.items():
+        ticker_market_data[ticker] = {
+            "technical": data.get("tech", {}),
+            "news": data.get("news", [])
+        }
         
     return {
         "timestamp": now_ny.strftime('%Y-%m-%d %H:%M:%S %Z'),  # 动态匹配 EDT / EST
         "macro_environment": macro_data,
         "positions_tax_lots": enriched_tax_lots,
+        "ticker_market_data": ticker_market_data,
         "complementary_candidates_market_data": fetch_complementary_candidates_data()  # 注入真实候选池行情
     }
