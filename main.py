@@ -128,70 +128,55 @@ def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial
 
     session_title = "盘前操作基调与持仓备忘" if session_mode == "pre_market" else "盘中异动与趋势确认扫描"
 
+    compact_payload = compress_payload_for_llm(market_payload)
+
     system_instruction = """
 你是一名服务于进取型中长线投资者的买方对冲基金首席宏观与量化税务配置专家。
-请严格恪守以下投资与税务纪律：
-1. **默认持有立场（Default Hold）**：投资者追求较低换手率（重仓标的持仓 >1 年），绝不追高，避免杀跌。日常行情波动建议保持【按兵不动】。
-2. **Tax Lots 批次级避税指令**：
-   - 当特定批次持有接近 365 天（300~364天）且处于浮盈时，坚决禁止止盈建议，警示短期资本利得税惩罚；
-   - 若某特定批次浮亏严重且该投资者 YTD 已实现盈利较大，评估 Tax-Loss Harvesting 冲销价值（注意提示 30 天 Wash Sale 规则）。
-   - 严禁逐行打印几十个持仓批次的冗长表格！只允许展示【按股票代码合并后的总持仓摘要表】以及【存在税务行动点的特殊批次】。
-   - 结合报税身份、收入门槛（如 3.8% NIIT 附加税）及所在州税摩擦（Tax Friction / Tax Drag）在后台进行综合测算。
-3. **关键击球点（Fat Pitch）资金管理**：
-   - 基于传入的【可用现金储备】，给出明确、可落地的操作结论（如：【保持现状/按兵不动】或【分批建仓指定标的与金额】）。在核心标的发生非理性深度回调（进入 52 周低位或 200-DMA 关键支撑）或出现不可错失的催化剂时，建议动用 5%~10% 现金分批建仓。
-4. **持仓赛道暴露度与新股互补诊断**：
-   - 评估当前持仓在主要赛道（如算力/半导体、大科技平台、中概互联、商业航天/核能、生物制药）的集中风险。
-   - 从传入的【complementary_candidates_market_data】中挑选 1~2 只最能与当前持仓形成互补/对冲的标的（附带推荐逻辑与建议挂单/建仓区间）。
-   - **严禁凭空编造价格**：建仓区间必须严格基于该标的的【current_price（当前真实价格）】、【ma_50】或【ma_200】进行计算（例如：若当前市价为 $259，建议建仓区间可为回踩 50-DMA 或折价 5%~10% 的真实计算区间，如 $235 - $245）。
-5. **【关键隐私脱敏纪律】**：
-   - **严禁在最终生成的 HTML 邮件正文中明文显示或打印【预估家庭年收入】与【YTD 已实现资本盈亏】的具体金额数字**！
-   - 这些数值仅用于你在后台测算税率档位与止损冲销逻辑，邮件正文展示个人概况时只需显示报税身份（如 Married Filing Jointly）、报税州（NJ）及投资目标即可。
-6. 【手机端配色红线（Mobile Email Styling）】：
-   - 必须采用【极简浅色卡片风 (Clean Light Theme)】，严禁使用任何深蓝、黑底等暗色背景，确保在手机浅色或深色模式下文字都清晰可见。
-   - 严禁生成 <style> 标签，严禁引入 Tailwind 等任何前端 CSS 框架类名，所有样式必须使用标签内联样式（Inline CSS）。
-   - 涨跌颜色：上涨用红/绿色醒目标签，标签文字颜色与底色必须保持极高对比度。
-7. 直接输出原生 HTML，不要带 ```html 标记。
+请严格恪守以下投资与税务纪律（宪法级指令）：
+
+1. **默认持有立场**：重仓标的持仓 >1 年，绝不追高杀跌。日常波动建议【按兵不动】。
+2. **Tax Lots 批次级避税指令（铁律）**：
+   - 严禁逐行打印所有持仓批次的冗长表格！**只展示存在税务行动点的特殊批次**（持有 300~364 天且浮盈，或浮亏严重具备 TLH 冲销价值的批次）。
+   - 针对临近 365 天的浮盈批次，坚决禁止止盈，警示短期资本利得税惩罚。
+   - 针对浮亏批次评估 Tax-Loss Harvesting 时，必须提示 30 天 Wash Sale 规则。
+   - 必须结合 3.8% NIIT 附加税及州税摩擦在后台测算，但不在正文中展示计算过程。
+3. **关键击球点资金管理**：核心标的发生深度回调（52周低位或 200-DMA 支撑）或出现不可错失催化剂时，动用 5%~10% 现金分批建仓。
+4. **持仓赛道诊断与新股互补**：评估算力/半导体、大科技、中概互联等赛道集中风险。从候选池选 1~2 只互补标的，**严禁凭空编造价格**，建仓区间必须基于 current_price、ma_50、ma_200 真实计算（如折价 5%~10%）。
+5. **【关键隐私脱敏铁律】**：**严禁在邮件正文中明文显示【预估家庭年收入】与【YTD 已实现资本盈亏】的具体数字**！仅允许显示报税身份（如 Married Filing Jointly）与州（NJ）。
+6. **【手机端配色红线】**：必须采用极简浅色卡片风（白/浅灰背景），**严禁深色/黑色背景**。**严禁生成 `<style>` 标签或引入 Tailwind**，所有样式必须使用标签内联样式（Inline CSS）。涨跌标签文字与底色必须高对比度。
+7. **输出格式**：直接输出原生 HTML，不要带 ```html 标记，全文控制在 3000 tokens 以内，只给结论，禁止解释推理过程。
 """
 
     prompt = f"""
-请分析以下实时市场 Payload 与个人财务参数，生成一份【{session_title}】HTML 邮件。
+请根据以下实时数据，生成一份【{session_title}】HTML 邮件分析。
 
-【用户财务与税务配置（后台计算用参数）】
+【用户财务参数（仅供后台计算，切勿在邮件正文展示收入与 YTD 具体金额）】
 - 可用现金储备: ${available_cash:,.2f}
 - 投资风格与目标: {risk_tolerance} ({primary_goal})
 - 报税身份与州: {filing_status} / {tax_state}
-- 预估家庭年收入: ${estimated_income:,.2f}
-- YTD 已实现资本盈亏 (Realized P&L): ${ytd_realized_pnl:,.2f}
-- 往年结转资本亏损 (Loss Carryover): ${loss_carryover:,.2f}
-- 亏损抵税策略已启用: {tlh_enabled}
-- 当前执行模式: {session_mode}
+- 预估家庭年收入: ${estimated_income:,.2f} (仅测算税率档位)
+- YTD 已实现资本盈亏: ${ytd_realized_pnl:,.2f} (仅测算 TLH 冲销)
+- 往年结转亏损: ${loss_carryover:,.2f}
+- 亏损抵税启用: {tlh_enabled}
+- 执行模式: {session_mode}
 
-【市场与各批次 Tax Lots 实时 Payload】
-json.dumps(
-    compact_payload,
-    ensure_ascii=False,
-    separators=(",", ":")
-)
+【市场与持仓 Tax Lots 实时 Payload】
+{json.dumps(compact_payload, ensure_ascii=False, separators=(",", ":"))}
 
-【HTML 邮件排版规范，重点在分析和决策，严禁输出长表格，全文控制在 3000 tokens 以内。禁止解释推理过程。每个章节只给结论。】
-1. **宏观与流动性环境**：标普/纳指/罗素分化，结合美债10年期收益率(^TNX)与恐慌指数(^VIX)给出大盘定性。
-2. **Tax Lots 持仓明细与税收时钟表 (表格呈现)**：
-   - 列出：券商(Broker)、代码(Ticker)、买入日期、持有天数、成本价、现价、浮盈亏($/%)、税收状态标签。
-   - 对临近 1 年的长税冲刺批次以醒目黄色/橙色突出显示。
-3. **当日操作决议（克制、果断）**：
-   - 明确给出【维持现状/按兵不动】、【分批加仓】或【税收亏损收割】。若加仓，需换算基于可用现金的具体金额区间。
-4. **持仓赛道集中度与新股建仓候选 (New Ticker Ideas)**：
-   - 诊断当前组合的赛道集中度风险（如 AI 算力与科技股集中度）。
-   - 推荐 1~2 只能够与现有持仓互补的优质新标的，列出：标的代码(Ticker)、所属赛道、互补价值与长线催化剂、建议等待的回调介入区间。
-5. **基本面、关键异动与新闻风险提炼**：简要概括影响长期逻辑的新闻要点，过滤短期噪音。
-6. **脱敏确认**：再次确认正文中**不包含**预估年收入与 YTD 已实现盈亏的具体数字。
+【需要生成的章节内容】（严格按此顺序输出结论）：
+1. 宏观与流动性环境（标普/纳指/罗素分化，结合 ^TNX 与 ^VIX 定性）。
+2. Tax Lots 税务行动点（只列特殊批次，带表格）。
+3. 当日操作决议（明确写【按兵不动】或【分批加仓+具体金额区间】）。
+4. 持仓赛道集中度与新股候选（从 complementary_candidates_market_data 中选 1~2 只，附带真实计算的回调区间）。
+5. 基本面新闻风险提炼（过滤短期噪音）。
+6. 脱敏确认声明。
 """
 
     max_retries = 3
     delay = 3
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"[Info] 正在调用 DeepSeek-V3 (deepseek-chat) 生成简报 (第 {attempt} 次)...")
+            print(f"[Info] 正在调用 DeepSeek 生成简报 (第 {attempt} 次)...")
             response = client.chat.completions.create(
                 model="deepseek-chat",
                 messages=[
@@ -199,36 +184,50 @@ json.dumps(
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.2,
+                max_tokens=4000,
                 stream=False
             )
-            raw_text = response.choices[0].message.content
+
+            choice = response.choices[0]
+            if choice.finish_reason == "length":
+                raise ValueError("DeepSeek 输出被截断")
+                
+            raw_text = response.choices[0].message.content or ""
             cleaned_html = raw_text.replace("```html", "").replace("```", "").strip()
+            
+            if "<style" in cleaned_html.lower():
+                raise ValueError("模型输出包含禁止的 <style> 标签")
+            if "<script" in cleaned_html.lower():
+                raise ValueError("模型输出包含禁止的 <script> 标签")
+                
+            if len(cleaned_html) < 200:
+                raise ValueError(f"返回内容过短 (仅 {len(cleaned_html)} 字符)")
+            if "<style" in cleaned_html.lower() or "<script" in cleaned_html.lower():
+                raise ValueError("模型输出包含禁止的 <style> 或 <script> 标签")
+
+            print(f"[Success] 简报生成成功！输出长度: {len(cleaned_html)} 字符")
             return cleaned_html
+
             if "<style" in cleaned_html.lower():
                 raise ValueError("模型输出包含禁止的 <style> 标签")
             if "<script" in cleaned_html.lower():
                 raise ValueError("模型输出包含禁止的 <script> 标签")
 
-        except (APIConnectionError, APITimeoutError, RateLimitError):
-            retry
-            
-        except APIStatusError as e:
-            print(f"[Warning] DeepSeek 调用失败 ({type(e).__name__}): {e}")
-            if e.status_code >= 500:
-                retry
+        except (APIConnectionError, APITimeoutError, RateLimitError, ValueError) as e:
+            print(f"[Warning] 触发重试 ({type(e).__name__}): {e}")
+            if attempt < max_retries:
+                time.sleep(delay)
+                delay *= 2
             else:
-                raise RuntimeError("DeepSeek API 重试耗尽，生成简报失败。")
-# === 在函数末尾 return 前，加入防空兜底校验 ===
-    raw_text = response.choices[0].message.content or ""
-    cleaned_html = raw_text.replace("```html", "").replace("```", "").strip()
-
-    # 1. 检查字数：少于 200 字符直接报错触发重试，不发空信
-    if len(cleaned_html) < 200:
-        print(f"[Error] DeepSeek 返回内容过短或为空 (仅 {len(cleaned_html)} 字符): {cleaned_html}")
-        raise ValueError("模型生成内容为空，终止发信以防误发。")
-
-    print(f"[Info] 简报生成成功！总字符数: {len(cleaned_html)}")
-    return cleaned_html
+                raise RuntimeError(f"DeepSeek API 重试耗尽: {e}")
+                
+        except APIStatusError as e:
+            print(f"[Warning] DeepSeek API 状态报错 ({e.status_code}): {e}")
+            if e.status_code >= 500 and attempt < max_retries:
+                time.sleep(delay)
+                delay *= 2
+            else:
+                raise RuntimeError("DeepSeek API 致命错误，终止运行。")
 
 def send_email_notification(html_content: str, subject_prefix: str, config_env: dict):
     sender_email = config_env["sender_email"]
