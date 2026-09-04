@@ -8,7 +8,12 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    RateLimitError,
+    APIStatusError,
+)
 from data_collector import assemble_full_market_payload
 
 # 初始化 DeepSeek 客户端
@@ -26,6 +31,9 @@ def load_environment_config():
 
     try:
         config = json.loads(raw_config)
+        if not isinstance(config, dict):
+            print("[Error] APP_CONFIG_JSON 必须是 JSON object")
+            sys.exit(1)
     except json.JSONDecodeError as e:
         print(f"[Error] APP_CONFIG_JSON JSON 格式解析失败: {e}")
         sys.exit(1)
@@ -35,7 +43,7 @@ def load_environment_config():
     finnhub_key = os.environ.get("FINNHUB_API_KEY")
     sender_email = os.environ.get("SENDER_EMAIL")
     sender_password = os.environ.get("SENDER_PASSWORD")
-    receiver_email = os.environ.get("RECEIVER_EMAIL", sender_email)
+    receiver_email = os.environ.get("RECEIVER_EMAIL") or sender_email
 
     if not all([deepseek_api_key, finnhub_key, sender_email, sender_password]):
         print("[Error] 缺失必要的 API Key 或邮件 SMTP 凭证。")
@@ -70,6 +78,7 @@ def compress_payload_for_llm(market_payload: dict) -> dict:
 
     for lot in market_payload.get("positions_tax_lots", []):
         cleaned_lots.append({
+            "sector": lot.get("sector"),
             "ticker": lot.get("ticker"),
             "broker": lot.get("broker"),
             "buy_date": lot.get("buy_date"),
@@ -103,7 +112,7 @@ def compress_payload_for_llm(market_payload: dict) -> dict:
     }
 
 def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
-    """调用 DeepSeek-V3 生成策略简报，内置脱敏与重试机制"""
+    """调用 DeepSeek 生成策略简报，内置脱敏与重试机制"""
     
     available_cash = financial_profile.get("available_cash", 0.0)
     risk_tolerance = financial_profile.get("risk_tolerance", "Aggressive")
@@ -158,9 +167,13 @@ def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial
 - 当前执行模式: {session_mode}
 
 【市场与各批次 Tax Lots 实时 Payload】
-{json.dumps(market_payload, indent=2, ensure_ascii=False)}
+json.dumps(
+    compact_payload,
+    ensure_ascii=False,
+    separators=(",", ":")
+)
 
-【HTML 邮件排版规范，重点在分析和决策，严禁输出长表格】
+【HTML 邮件排版规范，重点在分析和决策，严禁输出长表格，全文控制在 3000 tokens 以内。禁止解释推理过程。每个章节只给结论。】
 1. **宏观与流动性环境**：标普/纳指/罗素分化，结合美债10年期收益率(^TNX)与恐慌指数(^VIX)给出大盘定性。
 2. **Tax Lots 持仓明细与税收时钟表 (表格呈现)**：
    - 列出：券商(Broker)、代码(Ticker)、买入日期、持有天数、成本价、现价、浮盈亏($/%)、税收状态标签。
@@ -191,12 +204,18 @@ def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial
             raw_text = response.choices[0].message.content
             cleaned_html = raw_text.replace("```html", "").replace("```", "").strip()
             return cleaned_html
+            if "<style" in cleaned_html.lower():
+                raise ValueError("模型输出包含禁止的 <style> 标签")
+            if "<script" in cleaned_html.lower():
+                raise ValueError("模型输出包含禁止的 <script> 标签")
 
-        except Exception as e:
+        except (APIConnectionError, APITimeoutError, RateLimitError):
+            retry
+            
+        except APIStatusError as e:
             print(f"[Warning] DeepSeek 调用失败 ({type(e).__name__}): {e}")
-            if attempt < max_retries:
-                time.sleep(delay)
-                delay *= 2
+            if e.status_code >= 500:
+                retry
             else:
                 raise RuntimeError("DeepSeek API 重试耗尽，生成简报失败。")
 # === 在函数末尾 return 前，加入防空兜底校验 ===
