@@ -195,23 +195,15 @@ def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial
             raw_text = response.choices[0].message.content or ""
             cleaned_html = raw_text.replace("```html", "").replace("```", "").strip()
             
-            if "<style" in cleaned_html.lower():
-                raise ValueError("模型输出包含禁止的 <style> 标签")
-            if "<script" in cleaned_html.lower():
-                raise ValueError("模型输出包含禁止的 <script> 标签")
-                
             if len(cleaned_html) < 200:
                 raise ValueError(f"返回内容过短 (仅 {len(cleaned_html)} 字符)")
-            if "<style" in cleaned_html.lower() or "<script" in cleaned_html.lower():
+                
+            cleaned_html_lower = cleaned_html.lower()
+            if "<style" in cleaned_html_lower or "<script" in cleaned_html_lower:
                 raise ValueError("模型输出包含禁止的 <style> 或 <script> 标签")
 
             print(f"[Success] 简报生成成功！输出长度: {len(cleaned_html)} 字符")
             return cleaned_html
-
-            if "<style" in cleaned_html.lower():
-                raise ValueError("模型输出包含禁止的 <style> 标签")
-            if "<script" in cleaned_html.lower():
-                raise ValueError("模型输出包含禁止的 <script> 标签")
 
         except (APIConnectionError, APITimeoutError, RateLimitError, ValueError) as e:
             print(f"[Warning] 触发重试 ({type(e).__name__}): {e}")
