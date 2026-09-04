@@ -4,6 +4,7 @@ from typing import List, Dict, Any
 from zoneinfo import ZoneInfo
 import yfinance as yf
 import finnhub
+import math
 
 # 宏观核心指标映射池
 MACRO_TICKERS = {
@@ -63,7 +64,9 @@ def fetch_ticker_technical_data(ticker_symbol: str) -> Dict[str, Any]:
         change_pct = ((current_price - prev_close) / prev_close) * 100
         
         ma_50 = hist['Close'].rolling(window=50).mean().iloc[-1] if len(hist) >= 50 else None
+        ma_50 = None if (ma_50 is not None and math.isnan(ma_50)) else ma_50
         ma_200 = hist['Close'].rolling(window=200).mean().iloc[-1] if len(hist) >= 200 else None
+        ma_200 = None if (ma_200 is not None and math.isnan(ma_200)) else ma_200
         
         latest_vol = hist['Volume'].iloc[-1]
         avg_vol_20 = hist['Volume'].rolling(window=20).mean().iloc[-1] if len(hist) >= 20 else latest_vol
@@ -179,7 +182,7 @@ def assemble_full_market_payload(positions: List[Dict[str, Any]], finnhub_api_ke
     macro_data = fetch_macro_indicators()
     
     # 2. 提取唯一持仓 Ticker 列表，去重拉取
-    unique_tickers = list(set(pos["ticker"].strip().upper() for pos in positions if "ticker" in pos))
+    unique_tickers = list(set(pos["ticker"].strip().upper() for pos in positions if pos.get("ticker") and isinstance(pos["ticker"], str))
     market_cache = {}
     for ticker in unique_tickers:
         market_cache[ticker] = {
