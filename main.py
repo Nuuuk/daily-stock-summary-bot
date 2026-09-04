@@ -60,6 +60,48 @@ def determine_session_mode():
     now_ny = datetime.now(ny_tz)
     return "pre_market" if now_ny.hour < 12 else "mid_day"
 
+def compress_payload_for_llm(market_payload: dict) -> dict:
+    """
+    将 Tax Lot 与 Ticker-Level Market Data 分离，
+    避免 technical/news 在每个 lot 中重复存储。
+    """
+
+    cleaned_lots = []
+
+    for lot in market_payload.get("positions_tax_lots", []):
+        cleaned_lots.append({
+            "ticker": lot.get("ticker"),
+            "broker": lot.get("broker"),
+            "buy_date": lot.get("buy_date"),
+            "qty": lot.get("quantity"),
+            "cost": lot.get("cost_basis"),
+            "price": lot.get("current_price"),
+            "pnl": lot.get("unrealized_pnl"),
+            "pnl_pct": lot.get("unrealized_pnl_pct"),
+            "days": lot.get("holding_days"),
+            "tax_label": lot.get("tax_status_label"),
+            "data_quality": lot.get("data_quality")
+        })
+
+    ticker_info = {}
+
+    for ticker, data in market_payload.get("ticker_market_data", {}).items():
+        ticker_info[ticker] = {
+            "technical": data.get("technical", {}),
+            "news": data.get("news", [])[:2]
+        }
+
+    return {
+        "timestamp": market_payload.get("timestamp"),
+        "macro": market_payload.get("macro_environment"),
+        "tax_lots": cleaned_lots,
+        "portfolio_tickers_data": ticker_info,
+        "candidates": market_payload.get(
+            "complementary_candidates_market_data",
+            []
+        )
+    }
+
 def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial_profile: dict, session_mode: str) -> str:
     """调用 DeepSeek-V3 生成策略简报，内置脱敏与重试机制"""
     
