@@ -96,9 +96,8 @@ def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial
    - **严禁在最终生成的 HTML 邮件正文中明文显示或打印【预估家庭年收入】与【YTD 已实现资本盈亏】的具体金额数字**！
    - 这些数值仅用于你在后台测算税率档位与止损冲销逻辑，邮件正文展示个人概况时只需显示报税身份（如 Married Filing Jointly）、报税州（NJ）及投资目标即可。
 6. 【手机端配色红线（Mobile Email Styling）】：
-   - 必须采用【极简浅色卡片风 (Clean Light Theme)】，严禁使用任何深蓝、黑底等暗色背景！
-   - 邮件外层背景为浅灰 `#f8fafc`，卡片与表格背景必须为纯白 `#ffffff`，边框为浅灰 `#e2e8f0`。
-   - 标题字体统一使用深黑 `#0f172a`，正文使用深灰 `#334155`，次要说明使用 `#64748b`，确保在手机任何模式下文字都清晰可见。
+   - 必须采用【极简浅色卡片风 (Clean Light Theme)】，严禁使用任何深蓝、黑底等暗色背景，确保在手机浅色或深色模式下文字都清晰可见。
+   - 严禁生成 <style> 标签，严禁引入 Tailwind 等任何前端 CSS 框架类名，所有样式必须使用标签内联样式（Inline CSS）。
    - 涨跌颜色：上涨用红/绿色醒目标签，标签文字颜色与底色必须保持极高对比度。
 7. 直接输出原生 HTML，不要带 ```html 标记。
 """
@@ -158,7 +157,17 @@ def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial
                 delay *= 2
             else:
                 raise RuntimeError("DeepSeek API 重试耗尽，生成简报失败。")
+# === 在函数末尾 return 前，加入防空兜底校验 ===
+    raw_text = response.choices[0].message.content or ""
+    cleaned_html = raw_text.replace("```html", "").replace("```", "").strip()
 
+    # 1. 检查字数：少于 200 字符直接报错触发重试，不发空信
+    if len(cleaned_html) < 200:
+        print(f"[Error] DeepSeek 返回内容过短或为空 (仅 {len(cleaned_html)} 字符): {cleaned_html}")
+        raise ValueError("模型生成内容为空，终止发信以防误发。")
+
+    print(f"[Info] 简报生成成功！总字符数: {len(cleaned_html)}")
+    return cleaned_html
 
 def send_email_notification(html_content: str, subject_prefix: str, config_env: dict):
     sender_email = config_env["sender_email"]
