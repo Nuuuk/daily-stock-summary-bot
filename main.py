@@ -1,5 +1,3 @@
-ny_tz = ZoneInfo("America/New_York")
-print(f"[{datetime.now(ny_tz).strftime('%Y-%m-%d %H:%M:%S')}] 启动 Daily Stock Positions Summary Bot...")
 import os
 import sys
 import json
@@ -11,6 +9,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 from openai import (
+    OpenAI,
     APIConnectionError,
     APITimeoutError,
     RateLimitError,
@@ -144,7 +143,7 @@ def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial
    - 必须结合 3.8% NIIT 附加税及州税摩擦在后台测算，但不在正文中展示计算过程。
 3. **关键击球点资金管理**：核心标的发生深度回调（52周低位或 200-DMA 支撑）或出现不可错失催化剂时，动用 5%~10% 现金分批建仓。
 4. **持仓赛道诊断与新股互补**：评估算力/半导体、大科技、中概互联等赛道集中风险。从候选池选 1~2 只互补标的，**严禁凭空编造价格**，建仓区间必须基于 current_price、ma_50、ma_200 真实计算（如折价 5%~10%）。
-5. **【关键隐私脱敏铁律】**：**严禁在邮件正文中明文显示【预估家庭年收入】与【YTD 已实现资本盈亏】的具体数字**！仅允许显示报税身份（如 Married Filing Jointly）与州（NJ）。
+5. **【关键隐私脱敏铁律】**：**严禁在邮件正文中明文显示【预估家庭年收入】与【YTD 已实现资本盈亏】的具体数字**！仅允许显示报税身份与报税州（以 User Prompt 传入的 filing_status 和 tax_state 数据为准）。
 6. **【手机端配色红线】**：必须采用极简浅色卡片风（白/浅灰背景），**严禁深色/黑色背景**。**严禁生成 `<style>` 标签或引入 Tailwind**，所有样式必须使用标签内联样式（Inline CSS）。涨跌标签文字与底色必须高对比度。
 7. **输出格式**：直接输出原生 HTML，不要带 ```html 标记，全文控制在 3000 tokens 以内，只给结论，禁止解释推理过程。
 """
@@ -228,7 +227,7 @@ def send_email_notification(html_content: str, subject_prefix: str, config_env: 
     sender_password = config_env["sender_password"]
     receiver_email = config_env["receiver_email"]
 
-# 强制获取美东纽约时区时间（自动适应 EDT 夏令时 / EST 冬令时）
+    # 强制获取美东纽约时区时间（自动适应 EDT 夏令时 / EST 冬令时）
     ny_tz = ZoneInfo("America/New_York")
     now_ny = datetime.now(ny_tz)
     now_str = now_ny.strftime('%Y-%m-%d %H:%M %Z')
@@ -253,7 +252,9 @@ def send_email_notification(html_content: str, subject_prefix: str, config_env: 
 
 
 def main():
-    print(f"[{datetime.now()}] 启动 Daily Stock Positions Summary Bot...")
+    # 在这里强制获取美东纽约时区时间并打印
+    ny_tz = ZoneInfo("America/New_York")
+    print(f"[{datetime.now(ny_tz).strftime('%Y-%m-%d %H:%M:%S')}] 启动 Daily Stock Positions Summary Bot...")
     
     env_config = load_environment_config()
     app_config = env_config["config"]
