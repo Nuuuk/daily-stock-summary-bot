@@ -215,9 +215,9 @@ def assemble_full_market_payload(positions: List[Dict[str, Any]], finnhub_api_ke
         if current_price is not None:
             unrealized_pnl = round((current_price - cost_basis) * quantity, 2)
             unrealized_pnl_pct = round(((current_price - cost_basis) / cost_basis) * 100, 2) if cost_basis > 0 else 0.0
-        else:  
-        unrealized_pnl = None
-        unrealized_pnl_pct = None
+        else:
+            unrealized_pnl = None
+            unrealized_pnl_pct = None
         
         if holding_days >= 365:
             tax_status_label = "长期税率 (已超1年，可优先操作)"
