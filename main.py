@@ -1,3 +1,5 @@
+ny_tz = ZoneInfo("America/New_York")
+print(f"[{datetime.now(ny_tz).strftime('%Y-%m-%d %H:%M:%S')}] 启动 Daily Stock Positions Summary Bot...")
 import os
 import sys
 import json
@@ -184,7 +186,7 @@ def generate_llm_analysis_report(client: OpenAI, market_payload: dict, financial
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.2,
-                max_tokens=4000,
+                max_tokens=8000,
                 stream=False
             )
 
